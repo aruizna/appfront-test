@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\Product;
 use Illuminate\Support\Facades\Log;
 use App\Jobs\SendPriceChangeNotification;
+use Illuminate\Support\Facades\Storage;
 
 class AdminController extends Controller
 {
@@ -87,11 +88,18 @@ class AdminController extends Controller
     private function upsertImageFromRequest(Request $request, Product $product)
     {
         if ($request->hasFile('image')) {
-            $file = $request->file('image');
-            $file_extention = $file->getClientOriginalExtension();
-            $filename = "p-{$product->id}.{$file_extention}"; # Fixe filename definition, it was only the extension, and was wrong, set name related to Product-id
-            $file->move(public_path('uploads'), $filename);
-            $product->image = 'uploads/' . $filename;
+            if(!empty($product->image) && $product->image != 'product-placeholder.jpg') {
+                // Delete the old image if it exists
+                Storage::disk("public")->delete($product->image);
+            }
+            $filename = "p-{$product->id}.{$request->file('image')->getClientOriginalExtension()}";
+            $request->file('image')->storeAs(
+                'uploads',
+                $filename,
+                'public'
+            );
+
+            $product->image = "uploads/{$filename}";
             $product->save();
         } elseif (empty($product->image)) {
             $product->image = 'product-placeholder.jpg';
