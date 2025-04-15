@@ -93,7 +93,7 @@ class AdminController extends Controller
             $file->move(public_path('uploads'), $filename);
             $product->image = 'uploads/' . $filename;
             $product->save();
-        } elseif (empty($this->image)) {
+        } elseif (empty($product->image)) {
             $product->image = 'product-placeholder.jpg';
             $product->save();
         }
