@@ -6,31 +6,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Product;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Validator;
 use App\Jobs\SendPriceChangeNotification;
 
 class AdminController extends Controller
 {
-    public function loginPage()
-    {
-        return view('login');
-    }
-
-    public function login(Request $request)
-    {
-        if (Auth::attempt($request->except('_token'))) {
-            return redirect()->route('admin.products');
-        }
-
-        return redirect()->back()->with('error', 'Invalid login credentials');
-    }
-
-    public function logout()
-    {
-        Auth::logout();
-        return redirect()->route('login');
-    }
-
     public function products()
     {
         $products = Product::all();
@@ -39,44 +18,30 @@ class AdminController extends Controller
 
     public function editProduct($id)
     {
-        $product = Product::find($id);
+        $product = Product::findOrFail($id);
         return view('admin.edit_product', compact('product'));
     }
 
     public function updateProduct(Request $request, $id)
     {
         // Validate the name field
-        $validator = Validator::make($request->all(), [
+        $request->validate([
             'name' => 'required|min:3',
         ]);
 
-        if ($validator->fails()) {
-            return redirect()
-                ->back()
-                ->withErrors($validator)
-                ->withInput();
-        }
-
-        $product = Product::find($id);
+        $product = Product::findOrFail($id);
 
         // Store the old price before updating
         $oldPrice = $product->price;
 
-        $product->update($request->all());
+        $product->update($request->except("image"));
 
-        if ($request->hasFile('image')) {
-            $file = $request->file('image');
-            $filename = $file->getClientOriginalExtension();
-            $file->move(public_path('uploads'), $filename);
-            $product->image = 'uploads/' . $filename;
-        }
-
-        $product->save();
+        $this->upsertImageFromRequest($request, $product);
 
         // Check if price has changed
         if ($oldPrice != $product->price) {
             // Get notification email from env
-            $notificationEmail = env('PRICE_NOTIFICATION_EMAIL', 'admin@example.com');
+            $notificationEmail = config('data.emails.price_notification');
 
             try {
                 SendPriceChangeNotification::dispatch(
@@ -95,7 +60,7 @@ class AdminController extends Controller
 
     public function deleteProduct($id)
     {
-        $product = Product::find($id);
+        $product = Product::findOrFail($id);
         $product->delete();
 
         return redirect()->route('admin.products')->with('success', 'Product deleted successfully');
@@ -108,34 +73,30 @@ class AdminController extends Controller
 
     public function addProduct(Request $request)
     {
-        $validator = Validator::make($request->all(), [
+        $request->validate([
             'name' => 'required|min:3',
         ]);
 
-        if ($validator->fails()) {
-            return redirect()
-                ->back()
-                ->withErrors($validator)
-                ->withInput();
-        }
+        $product = Product::create($request->except('image'));
 
-        $product = Product::create([
-            'name' => $request->name,
-            'description' => $request->description,
-            'price' => $request->price
-        ]);
-
-        if ($request->hasFile('image')) {
-            $file = $request->file('image');
-            $filename = $file->getClientOriginalExtension();
-            $file->move(public_path('uploads'), $filename);
-            $product->image = 'uploads/' . $filename;
-        } else {
-            $product->image = 'product-placeholder.jpg';
-        }
-
-        $product->save();
+        $this->upsertImageFromRequest($request, $product);
 
         return redirect()->route('admin.products')->with('success', 'Product added successfully');
     }
+
+    private function upsertImageFromRequest(Request $request, Product $product)
+    {
+        if ($request->hasFile('image')) {
+            $file = $request->file('image');
+            $file_extention = $file->getClientOriginalExtension();
+            $filename = "p-{$product->id}.{$file_extention}"; # Fixe filename definition, it was only the extension, and was wrong, set name related to Product-id
+            $file->move(public_path('uploads'), $filename);
+            $product->image = 'uploads/' . $filename;
+            $product->save();
+        } elseif (empty($this->image)) {
+            $product->image = 'product-placeholder.jpg';
+            $product->save();
+        }
+    }
+
 }
